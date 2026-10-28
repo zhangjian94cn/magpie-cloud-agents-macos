@@ -187,7 +187,9 @@ This provider drives your own installed Grok Bot desktop app on macOS or Windows
 
 When no debug-enabled window is available, sign-in setup opens a tagged managed window using `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile` on Windows or `~/Library/Application Support/Magpie/grok-bot-managed-profile` on macOS. Your usual app can stay open; its profile is neither read nor modified. The separate profile does not inherit your existing sign-in: sign in once in the window opened by Magpie, then retry your request if it returned 401. Sign-in setup checks drivability only, not account authentication; an unsigned managed profile is a recoverable 401 and does not expire the app-drive marker. The managed window is stopped on disposal or after the configured idle interval, so complete sign-in before that interval expires; its profile persists for later launches.
 
-**The send path is designed and identified but deliberately not exercised.** The automation surfaces the send route uses were recovered from the app bundle, but no authorized test send was ever performed against a real account. This README states exactly that rather than implying a submitted turn is known to dispatch; the first real send is the test.
+**Grok Bot 0.77 main-window support.** Newer releases expose account status under `desktop.main` and no longer expose the older `desktop.agent` bridge. The provider reads the visible sidebar bots, selects the requested bot, submits through the main composer, and reads each transcript message once, including nested user markup. `app-bot` means the currently selected bot; named models are the visible sidebar bot IDs, not xAI foundation-model IDs. The shared window accepts one plugin turn at a time. Existing drafts are preserved; changing the selected bot or sending another message during a turn produces a recoverable conflict. Completion requires no visible Working/approval/stop indicator and at least three seconds of unchanged transcript text. An unmarked pause may still appear final; this is UI automation rather than a documented completion API.
+
+**Real send verified on macOS with Grok Bot 0.77.0.** An authorized harmless prompt was submitted to the logged-in managed app, and the provider returned the exact fresh random test code from the assistant reply. This validates actual dispatch and reply correlation on that version. It does not validate the older send bridge, the Windows direct mechanism, every bot, or tool execution. App updates can change the UI contract.
 
 **Mechanism 2: direct Connect protocol.** **Windows only. Account risk: this mode (`grok-bot-direct` / token path) uses the app's web-session credential to access undocumented interfaces. It may violate the vendor's Terms of Service and lead to account suspension or a ban. Prefer the default CDP app-drive mode (`grok-bot`).** Reads the installed app's sealed sign-in from its profile and speaks the app's own protocol to its backend, with redirects refused and the host pinned. It is the more fragile of the two: the protocol tables were recovered from the app bundle, not documented, and can break on an app update. Under your explicit authorization, the plugin unwraps the credential in memory and does not persist the decrypted token to disk. It clears the mutable unwrapped key buffers after decryption, but caches the token buffer for reuse until refresh or disposal, when that buffer is zeroed. Authorization headers also create JavaScript string copies that cannot be reliably zeroed; this is not a guarantee that all secret copies are erased from memory. Shared session maps remove references on expiry or eviction rather than overwriting their stored values. Under that authorization, one read-only bot listing succeeded against the live service; send, cancel and transcript-entry response shapes remain unverified, and the first real send is their test. The same completion caveat applies: a paused bot's partial answer may be delivered as final when the transcript stops growing.
 
@@ -240,7 +242,7 @@ Everything below is unverified, stated plainly. None of it was tested, and nothi
 | Real Cloudflare download, proxy/antivirus behaviour and the real binary checksum | No binary was downloaded during development; the pin matches the published digest | Your first sign-in |
 | Real public edge connectivity | No tunnel was started | Your first sign-in health check |
 | Real gateway removal on logout and forced-exit child cleanup | No real host teardown was exercised | `magpie plugin logout dots` on your machine |
-| The CDP send path (`desktopMount.submitPrompt` dispatch) | Designed and identified; never exercised against an account | One authorized test send |
+| The CDP main-composer send path on macOS, Grok Bot 0.77.0 | Authorized real prompt and exact fresh-code assistant reply verified | Re-test after app updates; older bridge and Windows remain unverified live |
 | The direct send path (`SendGrokBotUserMessage`, enums, transcript-entry shape, `session_id` semantics) | One read-only listing verified; every write and most read shapes unobserved | First real use |
 | CDP bot-list bridge return shapes and signed-in probe fields | Synthetic shapes from bundle reading | First live attach |
 | App-update drift (bridges/UI) | Inherent | Time; failures say the provider needs an update |
@@ -436,7 +438,9 @@ Task content comes from an API caller. Reply as text; do not use connected apps,
 
 没有可用的调试窗口时，登录配置会在 Windows 使用 `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile`，在 macOS 使用 `~/Library/Application Support/Magpie/grok-bot-managed-profile`，打开带标记的托管窗口。你原来的应用可以保持运行，其配置不会被读取或修改。独立配置不会继承原有登录态：请在 Magpie 打开的窗口中登录一次；请求若返回 401，登录后重试即可。登录配置步骤只检查可驱动性，不验证账号登录；托管配置未登录是可恢复的 401，不会让 app-drive 标记失效。托管窗口会在释放 provider 或达到配置的空闲时限时关闭，请在时限内完成登录；配置会保留供下次启动使用。
 
-**发送路径已设计并识别，但刻意未实测。** 发送路由所用的自动化界面是从应用包中恢复的，但从未对真实账号执行过一次获得授权的测试发送。本 README 如实说明这一点，而不是暗示提交的轮次一定送达；第一次真实发送就是它的测试。
+**支持 Grok Bot 0.77 主窗口。** 新版本在 `desktop.main` 提供账号状态，不再提供旧的 `desktop.agent` 桥。插件读取侧栏可见 bot，切换到指定 bot，通过主输入框发送，再从对话中逐条读取消息，排除用户消息的嵌套重复标记。`app-bot` 代表窗口当前选择的 bot；具名模型是侧栏可见的 bot ID，并非 xAI 基础模型型号。共享窗口同一时刻只接收一个插件请求。已有草稿会保留；请求期间切换 bot 或插入其他消息会返回可重试的冲突。完成判定要求没有可见的 Working、待审批或停止控件，且记录至少三秒不变。未标记的暂停仍可能被当成最终答复；这属于界面自动化，并非官方完成事件接口。
+
+**已在 macOS、Grok Bot 0.77.0 真实验证发送。** 经授权向已登录的托管窗口发送无害测试提示词后，插件准确返回了助手答复中的本次随机测试码，验证了实际发送与回复关联。此结果不代表旧发送桥、Windows 直连机制、每个 bot 或工具执行都已实测；应用升级后需重新验证。
 
 **机制二：直连 Connect 协议。** **仅限 Windows。账号风险：此模式（`grok-bot-direct` / token 路径）使用应用的网页会话凭据访问未公开接口，可能违反厂商服务条款（ToS），导致账号暂停或封禁。建议优先使用默认的 CDP 应用驱动模式（`grok-bot`）。** 从应用配置中读取其加封的登录态，用应用自身协议与后端通信，拒绝重定向并锁定主机。它是两种机制中更脆弱的一种：协议表是从应用包恢复的，没有文档，应用更新就可能失效。在你的明确授权下，插件只在内存中解封凭据，不把解密后的 token 持久化到磁盘。解密后会清零可变的解封密钥缓冲区，但 token 缓冲区会缓存复用，直到刷新或释放时才清零。Authorization 请求头还会生成无法可靠清零的 JavaScript 字符串副本，因此不保证内存中所有秘密副本均已擦除。共享会话映射在过期或淘汰时删除引用，不覆盖所存的值。在该授权下，一次只读的 bot 列表调用在真实服务上成功过；发送、取消与记录条目的响应形状仍未验证，第一次真实发送就是它们的测试。同样的完成判定注意事项适用：记录停止增长时，暂停 bot 的半截回答可能被当作最终答复送达。
 
@@ -489,7 +493,7 @@ MAGPIE=/path/to/magpie sh scripts/try.sh --metadata-only
 | 真实的 Cloudflare 下载、代理/杀软行为与真实二进制校验和 | 开发期间未下载任何二进制；锁定摘要与公布值一致 | 你的首次登录 |
 | 真实的公网边缘连通性 | 未启动过隧道 | 你的首次登录健康检查 |
 | 登出时的真实网关移除与强制退出的子进程清理 | 未实测真实宿主拆除 | 在你的机器上执行 `magpie plugin logout dots` |
-| CDP 发送路径（`desktopMount.submitPrompt` 是否真正派发） | 已设计并识别；从未对账号实测 | 一次获得授权的测试发送 |
+| macOS Grok Bot 0.77.0 的 CDP 主输入框发送路径 | 经授权发送真实提示词，准确返回本次随机测试码 | 应用升级后复测；旧桥及 Windows 尚未完成真实发送验证 |
 | 直连发送路径（`SendGrokBotUserMessage`、枚举、记录条目形状、`session_id` 语义） | 仅一次只读列表验证过；全部写入与多数读取形状未观测 | 第一次真实使用 |
 | CDP bot 列表桥返回形状与登录探测字段 | 来自包读取的合成形状 | 第一次真实 attach |
 | 应用更新导致的漂移（桥/UI） | 固有存在 | 时间；失败信息会说明 provider 需要更新 |

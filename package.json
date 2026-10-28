@@ -1,6 +1,6 @@
 {
   "name": "magpie-cloud-agents-macos",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Community fork of the six Magpie cloud-agent providers with macOS Grok Bot app-drive support.",
   "type": "module",
   "main": "./index.mjs",

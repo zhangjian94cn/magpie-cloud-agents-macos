@@ -48,7 +48,7 @@ async function buildFixtureTree(replacements) {
   await cp(join(repoRoot, "package.json"), join(dir, "package.json"))
   await cp(join(repoRoot, "lib"), join(dir, "lib"), { recursive: true })
   await mkdir(join(dir, "providers"))
-  for (const id of [...Object.values(fixturePlugins).map(([id]) => id), "grok-bot-cdp", "grok-bot-direct", "grok-bot-token"])
+  for (const id of [...Object.values(fixturePlugins).map(([id]) => id), "grok-bot-cdp", "grok-bot-surface", "grok-bot-direct", "grok-bot-token"])
     await cp(join(repoRoot, "providers", `${id}.mjs`), join(dir, "providers", `${id}.mjs`))
   await mkdir(join(dir, "scripts"))
   const gate = await readFile(join(repoRoot, "scripts/check.mjs"), "utf8")
