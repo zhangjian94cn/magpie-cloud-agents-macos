@@ -14,7 +14,11 @@ export const CDP_ERRORS = {
   crashed: "Grok Bot closed mid-answer — your prompt may still be answered in the app; ask again to re-attach",
   debug: "Grok Bot didn't open its debug interface — another security tool may be blocking it",
 }
-const failure = key => chatError(key === "signedOut" ? 401 : key === "running" ? 409 : 502, CDP_ERRORS[key])
+const failure = key => chatError(
+  key === "signedOut" ? 401 : key === "running" ? 409 : 502,
+  CDP_ERRORS[key],
+  key === "signedOut" ? "kept" : undefined,
+)
 export async function findGrokBot({ env = process.env, exists = path => access(path).then(() => true, () => false), platform = process.platform } = {}) {
   if (platform === "darwin") {
     const roots = ["/Applications"]
@@ -78,7 +82,7 @@ export function createGrokBotCdp(options = {}, dependencies = options.dependenci
   const platform = dependencies.platform ?? process.platform
   const app = createCdpApp({
     failure, find: deps => findGrokBot({ ...deps, platform }), processName: "Grok Bot.exe", flag: "magpie-grok-managed",
-    platform, posixProcessName: "Grok Bot",
+    platform, posixProcessName: "Grok Bot", authorizeLaunch: true,
     version: value => /GrokBot\//.test(value["User-Agent"] ?? ""),
     pages: list => list.filter(target => target.type === "page" && /^file:\/\//.test(target.url ?? "") && /\/dist\/renderer\//.test(target.url ?? "") && /app\.asar/.test(target.url ?? "")),
     args: deps => ["--user-data-dir=" + managedProfile(deps.env, platform)],
@@ -201,7 +205,7 @@ export function createGrokBotCdp(options = {}, dependencies = options.dependenci
   return {
     id: "grok-bot", name: "Grok Bot",
     async authorize() {
-      return { url: "", method: "auto", instructions: "Magpie attaches to an available debug-enabled Grok Bot window, or opens its own window with a separate profile when you chat. That profile does not inherit your usual app's sign-in: sign in once in the window Magpie opens, then retry your request. Your usual app can stay open. This setup checks drivability, not account sign-in. Sending a turn brings the app window to the front. No credential leaves the app. A unique Magpie turn identifier is appended to each submitted prompt for reply correlation. If the app status bridge is unavailable or unreadable, a paused answer may be delivered as final after two unchanged transcript reads.", callback: async () => {
+      return { url: "", method: "auto", instructions: "Magpie attaches to an available debug-enabled Grok Bot window, or opens its own window with a separate profile during sign-in. That profile does not inherit your usual app's sign-in: sign in once in the window Magpie opens. Your usual app can stay open. This setup checks drivability, not account sign-in; the plugin marker stays active until you clear it. Sending a turn brings the app window to the front. No credential leaves the app. A unique Magpie turn identifier is appended to each submitted prompt for reply correlation. If the app status bridge is unavailable or unreadable, a paused answer may be delivered as final after two unchanged transcript reads.", callback: async () => {
         try { await checkDrivable(); return { type: "success", refresh: "grok-bot-cdp", access: "app-local", expires: 0, accountId: "grok-bot-cdp", mechanism: "cdp" } }
         catch (error) { return { type: "failed", error: error.message } }
       } }
