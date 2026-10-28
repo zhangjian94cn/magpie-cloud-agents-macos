@@ -236,6 +236,21 @@ test("0.77 working status prevents early completion of stable partial text", asy
   } finally { fake.close() }
 })
 
+test("0.77 empty assistant placeholder waits for the real answer", async () => {
+  const fake = fixture({ modern: true, autoAnswer: true })
+  try {
+    const run = await send(fake)
+    fake.state.tail.at(-1).text = ""
+    await fake.driver.poll(marker, run)
+    fake.advance(10000)
+    expect((await fake.driver.poll(marker, run)).state).toBe("running")
+    fake.state.tail.at(-1).text = "real answer"
+    expect((await fake.driver.poll(marker, run)).state).toBe("running")
+    fake.advance(3000)
+    expect(await fake.driver.poll(marker, run)).toEqual({ state: "succeeded", text: "real answer" })
+  } finally { fake.close() }
+})
+
 test("discovery uses ProgramFiles, LOCALAPPDATA, then PATH in order", async () => {
   const visited = []
   const found = await findGrokBot({ platform: "win32", env: { ProgramFiles: "C:\\Global", LOCALAPPDATA: "C:\\Local", PATH: "C:\\Tools;C:\\More" }, exists: async path => { visited.push(path); return path === "C:\\Tools\\Grok Bot.exe" } })

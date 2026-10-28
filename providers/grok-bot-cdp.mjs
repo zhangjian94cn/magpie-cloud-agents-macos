@@ -245,7 +245,9 @@ export function createGrokBotCdp(options = {}, dependencies = options.dependenci
           running = row?.status === "running"
         }
       } catch { signal?.throwIfAborted() }
-      if (last && stable && !running && (!run.modern || app.deps.timers.now() - run.stableSince >= 3000)) {
+      // The app inserts an empty assistant placeholder before the actual answer.
+      const hasReply = last && (last.role !== "assistant" || last.text.trim())
+      if (hasReply && stable && !running && (!run.modern || app.deps.timers.now() - run.stableSince >= 3000)) {
         release(run)
         return { state: ["error", "refusal"].includes(last.role) ? "failed" : "succeeded", text: last.text }
       }
