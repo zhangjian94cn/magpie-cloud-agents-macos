@@ -16,7 +16,7 @@ An installable Magpie package that exposes six vendor cloud-agent services as Op
 Install from the published GitHub repository:
 
 ```sh
-magpie plugin add github:guanwenpeng2001-bot/magpie-cloud-agents
+magpie plugin add github:zhangjian94cn/magpie-cloud-agents-macos
 ```
 
 Or point `plugin add` at a local checkout of this repository:
@@ -265,7 +265,7 @@ Everything below is unverified, stated plainly. None of it was tested, and nothi
 从已发布的 GitHub 仓库安装：
 
 ```sh
-magpie plugin add github:guanwenpeng2001-bot/magpie-cloud-agents
+magpie plugin add github:zhangjian94cn/magpie-cloud-agents-macos
 ```
 
 或将 `plugin add` 指向本仓库的本地检出目录：

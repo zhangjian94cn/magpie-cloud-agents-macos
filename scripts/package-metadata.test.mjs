@@ -19,7 +19,7 @@ for (const field of ["name", "version", "description"]) {
 }
 
 test("listing repository names the published GitHub repository", () => {
-  expect(pkg.repository?.url).toBe("git+https://github.com/guanwenpeng2001-bot/magpie-cloud-agents.git")
+  expect(pkg.repository?.url).toBe("git+https://github.com/zhangjian94cn/magpie-cloud-agents-macos.git")
 })
 
 test("listing license is MIT", () => {

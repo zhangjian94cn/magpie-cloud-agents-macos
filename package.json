@@ -1,7 +1,7 @@
 {
-  "name": "magpie-cloud-agents",
-  "version": "0.1.0",
-  "description": "Six vendor cloud agents as Magpie providers: OpenAI Codex Cloud and the Codex Agents API, Cursor Cloud Agents, Devin Cloud, ChatGPT Dots, and the Grok Bot desktop app.",
+  "name": "magpie-cloud-agents-macos",
+  "version": "0.1.1",
+  "description": "Community fork of the six Magpie cloud-agent providers with macOS Grok Bot app-drive support.",
   "type": "module",
   "main": "./index.mjs",
   "exports": "./index.mjs",
@@ -31,11 +31,11 @@
   "author": "magpie-cloud-agents contributors",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/guanwenpeng2001-bot/magpie-cloud-agents.git"
+    "url": "git+https://github.com/zhangjian94cn/magpie-cloud-agents-macos.git"
   },
-  "homepage": "https://github.com/guanwenpeng2001-bot/magpie-cloud-agents#readme",
+  "homepage": "https://github.com/zhangjian94cn/magpie-cloud-agents-macos#readme",
   "bugs": {
-    "url": "https://github.com/guanwenpeng2001-bot/magpie-cloud-agents/issues"
+    "url": "https://github.com/zhangjian94cn/magpie-cloud-agents-macos/issues"
   },
   "magpie": {
     "maxConcurrency": 4,
