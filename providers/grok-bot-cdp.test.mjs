@@ -6,6 +6,7 @@ import { createGrokBotCdp, findGrokBot, connectCdp } from "./grok-bot-cdp.mjs"
 import { errorResponse } from "../lib/errors.mjs"
 import { SESSION_HEADER } from "../lib/sessions.mjs"
 import { parsePsRows, processDependencies } from "../lib/cdp-app.mjs"
+import { modernSurface, surfaceBots, surfaceSelected, surfaceBusy, surfaceComposer } from "./grok-bot-surface.mjs"
 
 test.skipIf(process.platform !== "win32")("real PowerShell teardown preserves exact process identity through JSON", async () => {
   const execute = promisify(execFile)
@@ -101,7 +102,21 @@ function fixture(settings = {}) {
         const expression = frame.params?.expression ?? ""
         let value
         let error
-        if (expression.includes("cursorAccount")) { value = state.signedIn; error = state.probeError }
+        if (expression === modernSurface) value = state.modern === true
+        else if (expression === surfaceSelected) value = state.selected ?? "bot-id"
+        else if (expression === surfaceBots) value = [{ id: "bot-id", name: "My bot" }, { id: "second", name: "Other bot" }]
+        else if (expression === surfaceBusy) value = state.running === true
+        else if (expression === surfaceComposer) value = state.draft ? "draft" : state.composer ? "ready" : "missing"
+        else if (expression.includes("const button =") && expression.includes("button.click()")) {
+          state.selected = JSON.parse(expression.match(/el\.dataset\.agentId === (".*")/)[1])
+          value = true
+        }
+        else if (frame.method === "Input.insertText" && state.modern) state.inserted = frame.params.text
+        else if (frame.method === "Input.dispatchKeyEvent" && frame.params.type === "keyDown" && state.modern) {
+          state.tail.push({ id: "submitted", role: "user", text: state.inserted })
+          if (state.autoAnswer) state.tail.push({ id: "reply", role: "assistant", text: "answer" })
+        }
+        else if (expression.includes("cursorAccount")) { value = state.signedIn; error = state.probeError }
         else if (expression.includes("listGrokBotAgentStatuses")) value = state.statuses
         else if (expression.includes("Promise.allSettled")) value = [["bot-id"], { agents: [{ agentId: "bot-id", name: "My bot" }, { id: "second", name: "Other bot" }] }]
         else if (expression.includes("readTranscriptStoreTail")) {
@@ -145,6 +160,7 @@ function fixture(settings = {}) {
   }
   const driver = createGrokBotCdp({ keepAliveMinutes: 0.01, launchTimeoutMs: 400 }, dependencies)
   return { state, frames, spawns, dependencies, driver, endpoint: `ws://127.0.0.1:${server.port}/devtools/page/fake`,
+    advance(ms) { timestamp += ms },
     get kills() { return kills },
     get stops() { return stops },
     get connections() { return clients.length },
@@ -154,6 +170,71 @@ function fixture(settings = {}) {
   }
 }
 const send = fixture => fixture.driver.create(marker, { model: "bot-id", prompt: "hello" })
+
+test("0.77 main window sends through CDP and correlates the actual reply after stability", async () => {
+  const fake = fixture({ modern: true, autoAnswer: true })
+  try {
+    expect(Object.keys(await fake.driver.liveModels(marker))).toEqual(["bot-id", "second"])
+    const run = await fake.driver.create(marker, { model: "app-bot", prompt: "hello" })
+    expect(fake.state.inserted).toContain(`[Magpie turn: ${run.messageId}]`)
+    expect(fake.frames.some(frame => frame.method === "Page.bringToFront")).toBe(true)
+    expect((await fake.driver.poll(marker, run)).state).toBe("running")
+    fake.advance(2999)
+    expect((await fake.driver.poll(marker, run)).state).toBe("running")
+    fake.advance(1)
+    expect(await fake.driver.poll(marker, run)).toEqual({ state: "succeeded", text: "answer" })
+    expect(fake.frames.some(frame => /desktopMount\.(mount|submitPrompt)/.test(frame.params.expression ?? ""))).toBe(false)
+  } finally { fake.close() }
+})
+
+test("0.77 preserves an unsent draft and releases a failed create", async () => {
+  const fake = fixture({ modern: true, draft: true })
+  try {
+    await expect(send(fake)).rejects.toThrow("unsent draft")
+    expect(fake.frames.some(frame => frame.method === "Input.insertText")).toBe(false)
+    fake.state.draft = false
+    expect((await send(fake)).bot.id).toBe("bot-id")
+  } finally { fake.close() }
+})
+
+test("0.77 serializes concurrent bot selections in its shared window", async () => {
+  const fake = fixture({ modern: true })
+  try {
+    const results = await Promise.allSettled([
+      send(fake), fake.driver.create(marker, { model: "second", prompt: "other" }),
+    ])
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1)
+    expect(fake.frames.filter(frame => frame.method === "Input.insertText")).toHaveLength(1)
+    const run = results.find(result => result.status === "fulfilled").value
+    fake.driver.cancel(marker, run)
+    expect((await fake.driver.create(marker, { model: "second", prompt: "next" })).bot.id).toBe("second")
+  } finally { fake.close() }
+})
+
+test("0.77 rejects selection changes and user interjections without returning an unrelated reply", async () => {
+  const fake = fixture({ modern: true, autoAnswer: true })
+  try {
+    let run = await send(fake)
+    fake.state.selected = "second"
+    await expect(fake.driver.poll(marker, run)).rejects.toThrow("selection changed")
+    fake.state.selected = "bot-id"
+    run = await fake.driver.create(marker, { model: "app-bot", prompt: "new", sessionKey: "new" })
+    fake.state.tail.push({ role: "user", text: "another human message" }, { role: "assistant", text: "unrelated" })
+    await expect(fake.driver.poll(marker, run)).rejects.toThrow("Another message")
+  } finally { fake.close() }
+})
+
+test("0.77 working status prevents early completion of stable partial text", async () => {
+  const fake = fixture({ modern: true, autoAnswer: true, running: true })
+  try {
+    const run = await send(fake)
+    await fake.driver.poll(marker, run)
+    fake.advance(10000)
+    expect((await fake.driver.poll(marker, run)).state).toBe("running")
+    fake.state.running = false
+    expect((await fake.driver.poll(marker, run)).state).toBe("succeeded")
+  } finally { fake.close() }
+})
 
 test("discovery uses ProgramFiles, LOCALAPPDATA, then PATH in order", async () => {
   const visited = []
