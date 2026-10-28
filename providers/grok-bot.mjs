@@ -65,6 +65,8 @@ export function makeGrokBotDriver(input, options = {}, dependencies = {}) {
         try {
           const driver = await driverFor(mechanism(auth))
           const live = await driver.liveModels?.(auth)
+          // Magpie retains its last known catalog when the desktop app is asleep.
+          if (live === null) return Object.defineProperty(floor, Symbol.for("magpie.fellBack"), { value: true })
           return { ...live, ...floor, ...Object.fromEntries(Object.entries(live ?? {}).map(([id, model]) => [id, { ...model, id, api: { id, url: BASE, npm: "@ai-sdk/openai-compatible" }, capabilities: { ...model.capabilities, toolcall: false } }])) }
         } catch (error) { if (error.signIn === "expired") throw error; return floor }
       },
