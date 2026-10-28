@@ -171,9 +171,45 @@ function fixture(settings = {}) {
 }
 const send = fixture => fixture.driver.create(marker, { model: "bot-id", prompt: "hello" })
 
+test("background model listings keep Magpie's cached catalog without opening the ordinary app", async () => {
+  const fake = fixture({ previous: true })
+  const plugin = makeGrokBotDriver({}, {}, { cdp: fake.dependencies })
+  try {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const models = await plugin.provider.models({ models: {} }, { auth: marker })
+      expect(models["app-bot"]).toBeDefined()
+      expect(models[Symbol.for("magpie.fellBack")]).toBe(true)
+      expect(await fake.driver.liveModels(marker)).toBeNull()
+    }
+    expect(fake.spawns).toHaveLength(0)
+    expect(fake.frames).toHaveLength(0)
+    expect(fake.stops).toHaveLength(0)
+  } finally { fake.close() }
+})
+
+test("an explicit request still starts the app, but later model refreshes cannot restart it", async () => {
+  const fake = fixture({ modern: true, autoAnswer: true })
+  try {
+    expect(await fake.driver.liveModels(marker)).toBeNull()
+    const run = await send(fake)
+    expect(fake.spawns).toHaveLength(1)
+    expect(Object.keys(await fake.driver.liveModels(marker))).toEqual(["bot-id", "second"])
+    await fake.driver.poll(marker, run)
+    fake.advance(3000)
+    expect((await fake.driver.poll(marker, run)).state).toBe("succeeded")
+    fake.expireIdle()
+    await Bun.sleep(5)
+    expect(fake.stops).toHaveLength(1)
+    fake.state.exited = true
+    for (let attempt = 0; attempt < 5; attempt++) expect(await fake.driver.liveModels(marker)).toBeNull()
+    expect(fake.spawns).toHaveLength(1)
+  } finally { fake.close() }
+})
+
 test("0.77 main window sends through CDP and correlates the actual reply after stability", async () => {
   const fake = fixture({ modern: true, autoAnswer: true })
   try {
+    expect((await (await fake.driver.authorize()).callback()).type).toBe("success")
     expect(Object.keys(await fake.driver.liveModels(marker))).toEqual(["bot-id", "second"])
     const run = await fake.driver.create(marker, { model: "app-bot", prompt: "hello" })
     expect(fake.state.inserted).toContain(`[Magpie turn: ${run.messageId}]`)
@@ -409,7 +445,7 @@ test("crash recovers once without resending prompt, then reports exact 502 kept"
 })
 
 test("factory preserves floor and enumerates named bot models", async () => {
-  const fake = fixture()
+  const fake = fixture({ previous: true, reattach: true })
   const plugin = makeGrokBotDriver({}, {}, { cdp: fake.dependencies })
   try { const models = await plugin.provider.models({ models: {} }, { auth: marker }); expect(models["app-bot"]).toBeDefined(); expect(models["bot-id"].name).toBe("My bot"); fake.expireIdle() } finally { fake.close() }
 })
@@ -507,7 +543,7 @@ test("managed stop revalidates tag, executable and creation time and refuses a m
     const enumerate = fake.dependencies.processes
     const driver = createGrokBotCdp({}, { ...fake.dependencies, processes: async () => (await enumerate()).map(row => { if (changed) mutate(row); return row }) })
     try {
-      await driver.liveModels(marker)
+      await (await driver.authorize()).callback()
       changed = true
       await driver.dispose()
       expect(fake.stops).toHaveLength(expected)
@@ -524,7 +560,7 @@ test("review F8 tagged orphan is adopted and identity revalidated before stop", 
   const fake = fixture(); let stopped = 0
   const row = { pid: 42, port: Number(new URL(fake.endpoint).port), executable: "C:\\Programs\\Grok Bot\\Grok Bot.exe", created: "start", managedTag: "999999:12345678-1234-4234-8234-123456789abc" }
   const driver = createGrokBotCdp({ keepAliveMinutes: 0.01 }, { ...fake.dependencies, processes: async () => [row], parentAlive: () => false, stopManaged: async () => { stopped++ } })
-  try { await driver.liveModels(marker); fake.expireIdle(); await Bun.sleep(5); expect(stopped).toBe(1) } finally { driver.dispose(); fake.close() }
+  try { await (await driver.authorize()).callback(); fake.expireIdle(); await Bun.sleep(5); expect(stopped).toBe(1) } finally { driver.dispose(); fake.close() }
 })
 
 test("review AJ identical loader retries reconnect twice without resubmission", async () => {
@@ -563,7 +599,7 @@ test("launched process identity is pinned before PID reuse", async () => {
   const enumerate = fake.dependencies.processes
   const driver = createGrokBotCdp({}, { ...fake.dependencies, processes: async () => (await enumerate()).map(row => ({ ...row, created: replaced ? "reused" : row.created })) })
   try {
-    await driver.liveModels(marker)
+    await (await driver.authorize()).callback()
     replaced = true
     await driver.dispose()
     await Bun.sleep(5)

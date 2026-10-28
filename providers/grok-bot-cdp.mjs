@@ -264,9 +264,15 @@ export function createGrokBotCdp(options = {}, dependencies = options.dependenci
       } }
     },
     async liveModels(credential, signal) {
-      try { const client = await ensure(signal); await signedIn(client, signal); return Object.fromEntries((await bots(client, signal)).map(bot => [bot.id, { name: bot.name, tool_call: false }])) }
-      catch (error) { if (error.status === 401) throw error; return {} }
-      finally { idle() }
+      let observed
+      try {
+        observed = await app.observe(signal)
+        if (!observed) return null
+        await signedIn(observed.client, signal)
+        return Object.fromEntries((await bots(observed.client, signal)).map(bot => [bot.id, { name: bot.name, tool_call: false }]))
+      }
+      catch (error) { signal?.throwIfAborted(); if (error.status === 401) throw error; return null }
+      finally { observed?.close() }
     },
     create, poll,
     cancel(credential, run) { if (active.get(run.bot.id) === run) release(run); idle() },
