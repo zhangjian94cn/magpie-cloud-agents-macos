@@ -6,6 +6,7 @@ import { emulate } from "../lib/emulate.mjs"
 import { unwrapToken, unprotect, makeTokenStore } from "./grok-bot-token.mjs"
 import { makeGrokBotDirect, cursorChecksum, transcriptEntry } from "./grok-bot-direct.mjs"
 
+const dpapiTest = test.skipIf(process.platform !== "win32")
 const missing = "Grok Bot direct: no local Grok Bot sign-in found — install the app and sign in once (or use the app-drive sign-in instead)"
 const refused = "Grok Bot direct: couldn't read the app's sealed sign-in (OS refused) — sign in to the app again, or use the app-drive mode"
 
@@ -48,7 +49,7 @@ async function failure(promise, message, status, signIn) {
   expect(caught?.signIn).toBe(signIn)
 }
 
-test("synthetic CryptProtectData round-trip and immediate key zeroing", async () => {
+dpapiTest("synthetic CryptProtectData round-trip and immediate key zeroing", async () => {
   const data = await fixture()
   let key
   const result = await unwrapToken(data.localState, data.secrets, { unprotect: async bytes => (key = await unprotect(bytes)) })
@@ -64,7 +65,7 @@ function reader(data) {
   } }
 }
 
-for (const name of ["wrong DPAPI prefix", "truncated DPAPI", "invalid base64", "missing key", "malformed accounts", "missing machine", "wrong v10 prefix", "truncated v10", "bad GCM tag", "DPAPI refusal"]) test(`unwrap ${name}: exact 401 kept`, async () => {
+for (const name of ["wrong DPAPI prefix", "truncated DPAPI", "invalid base64", "missing key", "malformed accounts", "missing machine", "wrong v10 prefix", "truncated v10", "bad GCM tag", "DPAPI refusal"]) dpapiTest(`unwrap ${name}: exact 401 kept`, async () => {
   const data = await fixture()
   const accounts = JSON.parse(data.secrets["cursor-accounts"])
   const bytes = Buffer.from(accounts.accounts.fixture["cursor-access-token"], "base64")
@@ -81,7 +82,7 @@ for (const name of ["wrong DPAPI prefix", "truncated DPAPI", "invalid base64", "
   await failure(unwrapToken(data.localState, data.secrets), refused, 401, "kept")
 })
 
-test("wrong-size and wrong-content keys are zeroed on failure", async () => {
+dpapiTest("wrong-size and wrong-content keys are zeroed on failure", async () => {
   const data = await fixture()
   for (const length of [16, 32]) {
     const key = new Uint8Array(length).fill(7)
@@ -90,13 +91,13 @@ test("wrong-size and wrong-content keys are zeroed on failure", async () => {
   }
 })
 
-test("invalid plaintext is zeroed", async () => {
+dpapiTest("invalid plaintext is zeroed", async () => {
   const data = await fixture(), token = new Uint8Array([10, 13])
   await failure(unwrapToken(data.localState, data.secrets, { decryptBlob: async () => token }), refused, 401, "kept")
   expect(token.every(byte => byte === 0)).toBe(true)
 })
 
-test("missing profile or active account: exact 401 expired", async () => {
+dpapiTest("missing profile or active account: exact 401 expired", async () => {
   const store = makeTokenStore({ profilePath: "synthetic-profile", readFile: async () => { throw Object.assign(new Error("missing"), { code: "ENOENT" }) } })
   await failure(store.get(), missing, 401, "expired")
   const data = await fixture()
@@ -110,7 +111,7 @@ test("profile permission and JSON errors: exact 401 kept", async () => {
   }
 })
 
-test("cached token is zeroed on replacement and teardown", async () => {
+dpapiTest("cached token is zeroed on replacement and teardown", async () => {
   const data = await fixture(), store = makeTokenStore(reader(data))
   const first = await store.get()
   expect(await store.get() === first).toBe(true)
@@ -122,7 +123,7 @@ test("cached token is zeroed on replacement and teardown", async () => {
   await failure(store.get(), refused, 401, "kept")
 })
 
-test("dispose during derivation clears pending token", async () => {
+dpapiTest("dispose during derivation clears pending token", async () => {
   const data = await fixture(), token = new Uint8Array([65, 66])
   let release, entered
   const started = new Promise(resolve => { entered = resolve })
@@ -529,7 +530,7 @@ test("streaming multi-row turn contains only the authoritative answer", async ()
   } finally { driver.dispose() }
 })
 
-test("non-byte injected keys yield exact 401 instead of TypeError", async () => {
+dpapiTest("non-byte injected keys yield exact 401 instead of TypeError", async () => {
   const data = await fixture()
   for (const key of [{}, new ArrayBuffer(32), "invalid"]) await failure(unwrapToken(data.localState, data.secrets, { unprotect: async () => key }), refused, 401, "kept")
 })
@@ -555,7 +556,7 @@ for (const delivery of [4, "REFUSED", "GROK_BOT_USER_MESSAGE_DELIVERY_REFUSED"])
   await failure(driver.create({}, { model: "bot-one", prompt: "question" }), "Message refused — the provider's protocol table may need an update", 502, "kept")
 })
 
-test("direct completion derives a sealed sign-in without a desktop connection and accepts a repeated message", async () => {
+dpapiTest("direct completion derives a sealed sign-in without a desktop connection and accepts a repeated message", async () => {
   const data = await fixture()
   let rows = [], sends = 0
   const { driver, calls } = harness(method => {

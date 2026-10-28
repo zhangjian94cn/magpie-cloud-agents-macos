@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { access } from "node:fs/promises"
-import { win32 } from "node:path"
+import { posix, win32 } from "node:path"
 import { tmpdir } from "node:os"
 import { chatError } from "../lib/errors.mjs"
 import { createCdpApp, connectCdp as connectAppCdp } from "../lib/cdp-app.mjs"
@@ -15,7 +15,16 @@ export const CDP_ERRORS = {
   debug: "Grok Bot didn't open its debug interface — another security tool may be blocking it",
 }
 const failure = key => chatError(key === "signedOut" ? 401 : key === "running" ? 409 : 502, CDP_ERRORS[key])
-export async function findGrokBot({ env = process.env, exists = path => access(path).then(() => true, () => false) } = {}) {
+export async function findGrokBot({ env = process.env, exists = path => access(path).then(() => true, () => false), platform = process.platform } = {}) {
+  if (platform === "darwin") {
+    const roots = ["/Applications"]
+    if (env.HOME) roots.push(posix.join(env.HOME, "Applications"))
+    for (const root of roots) {
+      const candidate = posix.join(root, "Grok Bot.app", "Contents", "MacOS", "Grok Bot")
+      if (await exists(candidate)) return candidate
+    }
+    throw failure("missing")
+  }
   const roots = [env.ProgramFiles && win32.join(env.ProgramFiles, "Grok Bot"), env.LOCALAPPDATA && win32.join(env.LOCALAPPDATA, "Programs", "Grok Bot"), ...(env.PATH ?? env.Path ?? "").split(";").filter(Boolean)]
   for (const root of roots.filter(Boolean)) {
     const candidate = win32.join(root.replace(/^"|"$/g, ""), "Grok Bot.exe")
@@ -25,6 +34,13 @@ export async function findGrokBot({ env = process.env, exists = path => access(p
 }
 
 export const connectCdp = (url, options, signal) => connectAppCdp(url, { ...options, failure }, signal)
+
+function managedProfile(env, platform) {
+  if (platform === "darwin") {
+    return posix.join(env.HOME || tmpdir(), "Library", "Application Support", "Magpie", "grok-bot-managed-profile")
+  }
+  return win32.join(env.LOCALAPPDATA || tmpdir(), "Magpie", "grok-bot-managed-profile")
+}
 
 const botList = value => {
   const list = Array.isArray(value) ? value : value?.agents ?? value?.agentIds ?? value?.pinnedAgents ?? []
@@ -59,11 +75,13 @@ const domTail = `(() => {
 
 export function createGrokBotCdp(options = {}, dependencies = options.dependencies ?? {}) {
   const active = new Map()
+  const platform = dependencies.platform ?? process.platform
   const app = createCdpApp({
-    failure, find: findGrokBot, processName: "Grok Bot.exe", flag: "magpie-grok-managed",
+    failure, find: deps => findGrokBot({ ...deps, platform }), processName: "Grok Bot.exe", flag: "magpie-grok-managed",
+    platform, posixProcessName: "Grok Bot",
     version: value => /GrokBot\//.test(value["User-Agent"] ?? ""),
     pages: list => list.filter(target => target.type === "page" && /^file:\/\//.test(target.url ?? "") && /\/dist\/renderer\//.test(target.url ?? "") && /app\.asar/.test(target.url ?? "")),
-    args: deps => ["--user-data-dir=" + win32.join(deps.env.LOCALAPPDATA || tmpdir(), "Magpie", "grok-bot-managed-profile")],
+    args: deps => ["--user-data-dir=" + managedProfile(deps.env, platform)],
     launchError: ({ child, previous }) => failure(previous.length && child.exitCode != null ? "running" : "debug"),
   }, options, dependencies, active)
   const { touch, idle, ensure, checkDrivable } = app

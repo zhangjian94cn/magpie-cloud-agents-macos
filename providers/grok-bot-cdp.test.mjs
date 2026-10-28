@@ -5,6 +5,7 @@ import { makeGrokBotDriver } from "./grok-bot.mjs"
 import { createGrokBotCdp, findGrokBot, connectCdp } from "./grok-bot-cdp.mjs"
 import { errorResponse } from "../lib/errors.mjs"
 import { SESSION_HEADER } from "../lib/sessions.mjs"
+import { parsePsRows, processDependencies } from "../lib/cdp-app.mjs"
 
 test.skipIf(process.platform !== "win32")("real PowerShell teardown preserves exact process identity through JSON", async () => {
   const execute = promisify(execFile)
@@ -113,7 +114,9 @@ function fixture(settings = {}) {
     },
   })
   const dependencies = {
-    env: { ProgramFiles: "C:\\Programs", LOCALAPPDATA: "C:\\Local", PATH: "C:\\Tools" }, exists: async () => !state.missing,
+    env: settings.platform === "darwin" ? { HOME: "/Users/test" } : { ProgramFiles: "C:\\Programs", LOCALAPPDATA: "C:\\Local", PATH: "C:\\Tools" },
+    platform: settings.platform ?? "win32",
+    exists: async () => !state.missing,
     processes: async () => [
       ...(state.previous ? [{ pid: 42, port: state.reattach ? server.port : undefined }] : []),
       ...(state.exited ? [] : spawns.flatMap((spawned, index) => {
@@ -143,12 +146,19 @@ const send = fixture => fixture.driver.create(marker, { model: "bot-id", prompt:
 
 test("discovery uses ProgramFiles, LOCALAPPDATA, then PATH in order", async () => {
   const visited = []
-  const found = await findGrokBot({ env: { ProgramFiles: "C:\\Global", LOCALAPPDATA: "C:\\Local", PATH: "C:\\Tools;C:\\More" }, exists: async path => { visited.push(path); return path === "C:\\Tools\\Grok Bot.exe" } })
+  const found = await findGrokBot({ platform: "win32", env: { ProgramFiles: "C:\\Global", LOCALAPPDATA: "C:\\Local", PATH: "C:\\Tools;C:\\More" }, exists: async path => { visited.push(path); return path === "C:\\Tools\\Grok Bot.exe" } })
   expect(visited).toEqual(["C:\\Global\\Grok Bot\\Grok Bot.exe", "C:\\Local\\Programs\\Grok Bot\\Grok Bot.exe", "C:\\Tools\\Grok Bot.exe"])
   expect(found).toBe(visited[2])
 })
 
-test("missing installation reports exact 502 kept", async () => { await expectFailure(() => findGrokBot({ env: {}, exists: async () => false }), "missing") })
+test("darwin discovery uses Applications, then the user Applications directory", async () => {
+  const visited = []
+  const found = await findGrokBot({ platform: "darwin", env: { HOME: "/Users/test" }, exists: async path => { visited.push(path); return path === "/Users/test/Applications/Grok Bot.app/Contents/MacOS/Grok Bot" } })
+  expect(visited).toEqual(["/Applications/Grok Bot.app/Contents/MacOS/Grok Bot", "/Users/test/Applications/Grok Bot.app/Contents/MacOS/Grok Bot"])
+  expect(found).toBe(visited[1])
+})
+
+test("missing installation reports exact 502 kept", async () => { await expectFailure(() => findGrokBot({ platform: "win32", env: {}, exists: async () => false }), "missing") })
 
 test("launch binds debug argv to loopback and mounts before submit with server-tail read", async () => {
   const fake = fixture()
@@ -162,6 +172,31 @@ test("launch binds debug argv to loopback and mounts before submit with server-t
     expect(expressions.some(text => text.includes('"reason":"server-tail"'))).toBe(true)
     expect(expressions.some(text => text.includes('"agentId":"bot-id"'))).toBe(true)
   } finally { fake.close() }
+})
+
+test("darwin launch uses the app executable and a separate Application Support profile", async () => {
+  const fake = fixture({ platform: "darwin" })
+  try {
+    await send(fake)
+    expect(fake.spawns[0].exe).toBe("/Applications/Grok Bot.app/Contents/MacOS/Grok Bot")
+    expect(fake.spawns[0].argv[3]).toBe("--user-data-dir=/Users/test/Library/Application Support/Magpie/grok-bot-managed-profile")
+  } finally { fake.close() }
+})
+
+test("darwin ps parsing keeps the executable path and managed command arguments", async () => {
+  const stdout = [
+    "  321 Tue Oct 27 18:48:37 2026     /Applications/Grok Bot.app/Contents/MacOS/Grok Bot --remote-debugging-port=9333 --magpie-grok-managed=999:12345678-1234-4234-8234-123456789abc",
+    "  322 Tue Oct 27 18:48:37 2026     /Applications/Grok Bot.app/Contents/Frameworks/Grok Bot Helper.app/Contents/MacOS/Grok Bot Helper --type=renderer --user-data-dir=/Users/test/Library/Application Support/Grok Bot",
+  ].join("\n")
+  expect(parsePsRows(stdout, "Grok Bot")).toEqual([{ pid: 321, created: "Tue Oct 27 18:48:37 2026", executable: "/Applications/Grok Bot.app/Contents/MacOS/Grok Bot", command: "--remote-debugging-port=9333 --magpie-grok-managed=999:12345678-1234-4234-8234-123456789abc" }])
+  const stopper = processDependencies("Grok Bot.exe", "magpie-grok-managed", {
+    platform: "darwin", posixName: "Grok Bot",
+    executeProcess: async () => ({ stdout }),
+    killProcess: (pid, signal) => { expect(pid).toBe(321); expect(signal).toBe("SIGTERM") },
+  })
+  const [row] = await stopper.processes()
+  expect(row).toEqual({ pid: 321, executable: "/Applications/Grok Bot.app/Contents/MacOS/Grok Bot", created: "Tue Oct 27 18:48:37 2026", managedTag: "999:12345678-1234-4234-8234-123456789abc", port: 9333 })
+  await stopper.stopManaged(row)
 })
 
 test("reattach to GrokBot User-Agent uses existing app and never kills it", async () => {

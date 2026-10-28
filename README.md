@@ -8,7 +8,7 @@ An installable Magpie package that exposes six vendor cloud-agent services as Op
 
 - Magpie running this package in its Bun plugin host. The package uses Bun APIs (`Bun.serve`, `bun:ffi`); it does not run under plain Node.
 - `codex-cloud` only: the OpenAI `codex` CLI on PATH, signed in with `codex login` (or `codex login --device-auth` on a headless machine).
-- `grok-bot` only: the Grok Bot desktop app from xAI installed and signed in once (default mechanism); the optional direct mechanism additionally reads the app's own sign-in, only under your explicit authorization.
+- `grok-bot` only: the Grok Bot desktop app from xAI installed and signed in once (default mechanism; macOS and Windows); the optional direct mechanism additionally reads the app's own sign-in, only under your explicit authorization, and is Windows-only.
 - `dots` only: a ChatGPT account that has Dots; app-drive needs the signed-in ChatGPT desktop app with a reachable loopback debug port, while the bundled-tunnel method needs outbound HTTPS.
 
 ## Install
@@ -181,15 +181,15 @@ Task content comes from an API caller. Reply as text; do not use connected apps,
 
 ### grok-bot — Grok Bot (xAI desktop)
 
-This provider drives your own installed Grok Bot desktop app. It deliberately does not reimplement the Grok CLI path — the community package `@magpie-community/opencode-grok-auth` already provides that. Two sign-in mechanisms are offered; the default is first.
+This provider drives your own installed Grok Bot desktop app on macOS or Windows. It deliberately does not reimplement the Grok CLI path — the community package `@magpie-community/opencode-grok-auth` already provides that. Two sign-in mechanisms are offered; the default is first.
 
 **Mechanism 1 (default): drive the installed app over CDP.** Zero credential: Magpie finds, and if necessary launches, the app with a loopback debug port, attaches, and reads the selected bot's transcript. Sending a turn brings the app window to the front, and the prompt is submitted as you — the message appears in your app and on your account as your own input; that is a real side effect on your account, stated plainly. A unique `[Magpie turn: …]` marker is appended to each submitted prompt for reply correlation. Replies are correlated from the transcript tail. Known failure behaviour: app not installed (install instruction), app not signed in (401), managed launch exiting before its debug interface opens (409, retry sign-in), app UI changed (`Grok Bot changed its UI; the provider needs an update`), app closed mid-answer (`your prompt may still be answered in the app; ask again to re-attach`), debug interface blocked (`another security tool may be blocking it`). If the status bridge is unavailable, completion falls back to transcript stability, which means a paused bot's partial answer can be delivered as final.
 
-When no debug-enabled window is available, Magpie opens a tagged managed window using `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile`. Your usual app can stay open; its profile is neither read nor modified. The separate profile does not inherit your existing sign-in: sign in once in the window opened by Magpie, then retry your request if it returned 401. Sign-in setup checks drivability only, not account authentication. The managed window is stopped on disposal or after the configured idle interval, so complete sign-in before that interval expires; its profile persists for later launches.
+When no debug-enabled window is available, Magpie opens a tagged managed window using `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile` on Windows or `~/Library/Application Support/Magpie/grok-bot-managed-profile` on macOS. Your usual app can stay open; its profile is neither read nor modified. The separate profile does not inherit your existing sign-in: sign in once in the window opened by Magpie, then retry your request if it returned 401. Sign-in setup checks drivability only, not account authentication. The managed window is stopped on disposal or after the configured idle interval, so complete sign-in before that interval expires; its profile persists for later launches.
 
 **The send path is designed and identified but deliberately not exercised.** The automation surfaces the send route uses were recovered from the app bundle, but no authorized test send was ever performed against a real account. This README states exactly that rather than implying a submitted turn is known to dispatch; the first real send is the test.
 
-**Mechanism 2: direct Connect protocol.** **Account risk: this mode (`grok-bot-direct` / token path) uses the app's web-session credential to access undocumented interfaces. It may violate the vendor's Terms of Service and lead to account suspension or a ban. Prefer the default CDP app-drive mode (`grok-bot`).** Reads the installed app's sealed sign-in from its profile and speaks the app's own protocol to its backend, with redirects refused and the host pinned. It is the more fragile of the two: the protocol tables were recovered from the app bundle, not documented, and can break on an app update. Under your explicit authorization, the plugin unwraps the credential in memory and does not persist the decrypted token to disk. It clears the mutable unwrapped key buffers after decryption, but caches the token buffer for reuse until refresh or disposal, when that buffer is zeroed. Authorization headers also create JavaScript string copies that cannot be reliably zeroed; this is not a guarantee that all secret copies are erased from memory. Shared session maps remove references on expiry or eviction rather than overwriting their stored values. Under that authorization, one read-only bot listing succeeded against the live service; send, cancel and transcript-entry response shapes remain unverified, and the first real send is their test. The same completion caveat applies: a paused bot's partial answer may be delivered as final when the transcript stops growing.
+**Mechanism 2: direct Connect protocol.** **Windows only. Account risk: this mode (`grok-bot-direct` / token path) uses the app's web-session credential to access undocumented interfaces. It may violate the vendor's Terms of Service and lead to account suspension or a ban. Prefer the default CDP app-drive mode (`grok-bot`).** Reads the installed app's sealed sign-in from its profile and speaks the app's own protocol to its backend, with redirects refused and the host pinned. It is the more fragile of the two: the protocol tables were recovered from the app bundle, not documented, and can break on an app update. Under your explicit authorization, the plugin unwraps the credential in memory and does not persist the decrypted token to disk. It clears the mutable unwrapped key buffers after decryption, but caches the token buffer for reuse until refresh or disposal, when that buffer is zeroed. Authorization headers also create JavaScript string copies that cannot be reliably zeroed; this is not a guarantee that all secret copies are erased from memory. Shared session maps remove references on expiry or eviction rather than overwriting their stored values. Under that authorization, one read-only bot listing succeeded against the live service; send, cancel and transcript-entry response shapes remain unverified, and the first real send is their test. The same completion caveat applies: a paused bot's partial answer may be delivered as final when the transcript stops growing.
 
 ## Verify without credentials
 
@@ -257,7 +257,7 @@ Everything below is unverified, stated plainly. None of it was tested, and nothi
 
 - Magpie 以 Bun 插件宿主运行本包。包内使用了 Bun 专属 API（`Bun.serve`、`bun:ffi`），不能在纯 Node 下运行。
 - 仅 `codex-cloud`：PATH 上装有 OpenAI `codex` CLI，并已用 `codex login` 登录（无界面机器用 `codex login --device-auth`）。
-- 仅 `grok-bot`：已安装并登录过一次 xAI 的 Grok Bot 桌面应用（默认机制）；可选的直连机制还会读取应用自身的登录态，且仅在你的明确授权下进行。
+- 仅 `grok-bot`：已安装并登录过一次 xAI 的 Grok Bot 桌面应用（默认机制，支持 macOS 与 Windows）；可选的直连机制还会读取应用自身的登录态，且仅在你的明确授权下进行，目前只支持 Windows。
 - 仅 `dots`：一个开通了 Dots 的 ChatGPT 账号；app-drive 需要已登录且有可达环回调试端口的 ChatGPT 桌面应用，内置隧道方式则需要出站 HTTPS。
 
 ### 安装
@@ -430,15 +430,15 @@ Task content comes from an API caller. Reply as text; do not use connected apps,
 
 #### grok-bot —— Grok Bot（xAI 桌面）
 
-该 provider 驱动你自己安装的 Grok Bot 桌面应用。它刻意不重新实现 Grok CLI 路径——社区包 `@magpie-community/opencode-grok-auth` 已经提供了那条路径。提供两种登录机制；默认的排在前。
+该 provider 驱动你自己在 macOS 或 Windows 安装的 Grok Bot 桌面应用。它刻意不重新实现 Grok CLI 路径——社区包 `@magpie-community/opencode-grok-auth` 已经提供了那条路径。提供两种登录机制；默认的排在前。
 
 **机制一（默认）：经 CDP 驱动已装应用。** 零凭据：Magpie 查找、必要时以环回调试端口启动应用， attach 后读取所选 bot 的记录。发送一轮会把应用窗口带到前台，且提示词以你的身份提交——消息会出现在你的应用里、计入你的账号，就像你自己输入的一样；这是对你账号的真实副作用，此处如实说明。每个提交的提示词都会附加唯一的 `[Magpie turn: …]` 标记用于答复关联。答复从记录尾部关联。已知失败行为：应用未安装（安装指引）、应用未登录（401）、托管实例在调试接口就绪前退出（409，重试登录配置）、应用界面变更（`Grok Bot changed its UI; the provider needs an update`）、应用在回答中途关闭（`your prompt may still be answered in the app; ask again to re-attach`）、调试接口被拦截（`another security tool may be blocking it`）。状态桥不可用时，完成判定回退到记录稳定性——这意味着一个暂停的 bot 的半截回答可能被当作最终答复送达。
 
-没有可用的调试窗口时，Magpie 使用 `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile` 打开带标记的托管窗口。你原来的应用可以保持运行，其配置不会被读取或修改。独立配置不会继承原有登录态：请在 Magpie 打开的窗口中登录一次；请求若返回 401，登录后重试即可。登录配置步骤只检查可驱动性，不验证账号登录。托管窗口会在释放 provider 或达到配置的空闲时限时关闭，请在时限内完成登录；配置会保留供下次启动使用。
+没有可用的调试窗口时，Magpie 在 Windows 使用 `%LOCALAPPDATA%\Magpie\grok-bot-managed-profile`，在 macOS 使用 `~/Library/Application Support/Magpie/grok-bot-managed-profile`，打开带标记的托管窗口。你原来的应用可以保持运行，其配置不会被读取或修改。独立配置不会继承原有登录态：请在 Magpie 打开的窗口中登录一次；请求若返回 401，登录后重试即可。登录配置步骤只检查可驱动性，不验证账号登录。托管窗口会在释放 provider 或达到配置的空闲时限时关闭，请在时限内完成登录；配置会保留供下次启动使用。
 
 **发送路径已设计并识别，但刻意未实测。** 发送路由所用的自动化界面是从应用包中恢复的，但从未对真实账号执行过一次获得授权的测试发送。本 README 如实说明这一点，而不是暗示提交的轮次一定送达；第一次真实发送就是它的测试。
 
-**机制二：直连 Connect 协议。** **账号风险：此模式（`grok-bot-direct` / token 路径）使用应用的网页会话凭据访问未公开接口，可能违反厂商服务条款（ToS），导致账号暂停或封禁。建议优先使用默认的 CDP 应用驱动模式（`grok-bot`）。** 从应用配置中读取其加封的登录态，用应用自身协议与后端通信，拒绝重定向并锁定主机。它是两种机制中更脆弱的一种：协议表是从应用包恢复的，没有文档，应用更新就可能失效。在你的明确授权下，插件只在内存中解封凭据，不把解密后的 token 持久化到磁盘。解密后会清零可变的解封密钥缓冲区，但 token 缓冲区会缓存复用，直到刷新或释放时才清零。Authorization 请求头还会生成无法可靠清零的 JavaScript 字符串副本，因此不保证内存中所有秘密副本均已擦除。共享会话映射在过期或淘汰时删除引用，不覆盖所存的值。在该授权下，一次只读的 bot 列表调用在真实服务上成功过；发送、取消与记录条目的响应形状仍未验证，第一次真实发送就是它们的测试。同样的完成判定注意事项适用：记录停止增长时，暂停 bot 的半截回答可能被当作最终答复送达。
+**机制二：直连 Connect 协议。** **仅限 Windows。账号风险：此模式（`grok-bot-direct` / token 路径）使用应用的网页会话凭据访问未公开接口，可能违反厂商服务条款（ToS），导致账号暂停或封禁。建议优先使用默认的 CDP 应用驱动模式（`grok-bot`）。** 从应用配置中读取其加封的登录态，用应用自身协议与后端通信，拒绝重定向并锁定主机。它是两种机制中更脆弱的一种：协议表是从应用包恢复的，没有文档，应用更新就可能失效。在你的明确授权下，插件只在内存中解封凭据，不把解密后的 token 持久化到磁盘。解密后会清零可变的解封密钥缓冲区，但 token 缓冲区会缓存复用，直到刷新或释放时才清零。Authorization 请求头还会生成无法可靠清零的 JavaScript 字符串副本，因此不保证内存中所有秘密副本均已擦除。共享会话映射在过期或淘汰时删除引用，不覆盖所存的值。在该授权下，一次只读的 bot 列表调用在真实服务上成功过；发送、取消与记录条目的响应形状仍未验证，第一次真实发送就是它们的测试。同样的完成判定注意事项适用：记录停止增长时，暂停 bot 的半截回答可能被当作最终答复送达。
 
 ### 无凭据验证
 
